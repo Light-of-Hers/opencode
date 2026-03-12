@@ -9,6 +9,7 @@ import DESCRIPTION from "./grep.txt"
 import { Instance } from "../project/instance"
 import path from "path"
 import { assertExternalDirectory } from "./external-directory"
+import { Config } from "../config/config"
 
 const MAX_LINE_LENGTH = 2000
 
@@ -40,7 +41,9 @@ export const GrepTool = Tool.define("grep", {
     await assertExternalDirectory(ctx, searchPath, { kind: "directory" })
 
     const rgPath = await Ripgrep.filepath()
+    const config = await Config.get()
     const args = ["-nH", "--hidden", "--no-messages", "--field-match-separator=|", "--regexp", params.pattern]
+    if (config.follow_symlinks) args.push("--follow")
     if (params.include) {
       args.push("--glob", params.include)
     }

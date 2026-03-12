@@ -13,6 +13,7 @@ import { text } from "node:stream/consumers"
 
 import { ZipReader, BlobReader, BlobWriter } from "@zip.js/zip.js"
 import { Log } from "@/util/log"
+import { Config } from "@/config/config"
 
 export namespace Ripgrep {
   const log = Log.create({ service: "ripgrep" })
@@ -223,8 +224,9 @@ export namespace Ripgrep {
   }) {
     input.signal?.throwIfAborted()
 
+    const follow = input.follow ?? (await Config.get().catch(() => undefined))?.follow_symlinks
     const args = [await filepath(), "--files", "--glob=!.git/*"]
-    if (input.follow) args.push("--follow")
+    if (follow) args.push("--follow")
     if (input.hidden !== false) args.push("--hidden")
     if (input.maxDepth !== undefined) args.push(`--max-depth=${input.maxDepth}`)
     if (input.glob) {
@@ -339,8 +341,9 @@ export namespace Ripgrep {
     limit?: number
     follow?: boolean
   }) {
+    const follow = input.follow ?? (await Config.get().catch(() => undefined))?.follow_symlinks
     const args = [`${await filepath()}`, "--json", "--hidden", "--glob=!.git/*"]
-    if (input.follow) args.push("--follow")
+    if (follow) args.push("--follow")
 
     if (input.glob) {
       for (const g of input.glob) {

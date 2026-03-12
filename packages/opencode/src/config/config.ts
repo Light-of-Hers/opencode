@@ -1052,6 +1052,7 @@ export namespace Config {
         })
         .optional(),
       plugin: z.string().array().optional(),
+      follow_symlinks: z.boolean().optional().describe("Follow symbolic links when searching files (default: false)"),
       snapshot: z.boolean().optional(),
       share: z
         .enum(["manual", "auto", "disabled"])
