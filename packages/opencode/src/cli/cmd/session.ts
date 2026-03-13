@@ -76,6 +76,12 @@ export const SessionListCommand = cmd({
   describe: "list sessions",
   builder: (yargs: Argv) => {
     return yargs
+      .option("all", {
+        alias: "a",
+        describe: "list sessions across all projects",
+        type: "boolean",
+        default: false,
+      })
       .option("max-count", {
         alias: "n",
         describe: "limit to N most recent sessions",
@@ -90,7 +96,9 @@ export const SessionListCommand = cmd({
   },
   handler: async (args) => {
     await bootstrap(process.cwd(), async () => {
-      const sessions = [...Session.list({ roots: true, limit: args.maxCount })]
+      const sessions = args.all
+        ? [...Session.listGlobal({ roots: true, limit: args.maxCount })]
+        : [...Session.list({ roots: true, limit: args.maxCount })]
 
       if (sessions.length === 0) {
         return
@@ -98,9 +106,9 @@ export const SessionListCommand = cmd({
 
       let output: string
       if (args.format === "json") {
-        output = formatSessionJSON(sessions)
+        output = formatSessionJSON(sessions, args.all)
       } else {
-        output = formatSessionTable(sessions)
+        output = formatSessionTable(sessions, args.all)
       }
 
       const shouldPaginate = process.stdout.isTTY && !args.maxCount && args.format === "table"
@@ -127,26 +135,35 @@ export const SessionListCommand = cmd({
   },
 })
 
-function formatSessionTable(sessions: Session.Info[]): string {
+type ListedSession = Session.Info | Session.GlobalInfo
+
+function formatSessionTable(sessions: ListedSession[], showProject = false): string {
   const lines: string[] = []
 
   const maxIdWidth = Math.max(20, ...sessions.map((s) => s.id.length))
   const maxTitleWidth = Math.max(25, ...sessions.map((s) => s.title.length))
+  const maxProjectWidth = showProject
+    ? Math.max(24, ...sessions.map((s) => getProjectLabel(s).length))
+    : 0
 
-  const header = `Session ID${" ".repeat(maxIdWidth - 10)}  Title${" ".repeat(maxTitleWidth - 5)}  Updated`
+  const header = showProject
+    ? `Session ID${" ".repeat(maxIdWidth - 10)}  Title${" ".repeat(maxTitleWidth - 5)}  Project${" ".repeat(maxProjectWidth - 7)}  Updated`
+    : `Session ID${" ".repeat(maxIdWidth - 10)}  Title${" ".repeat(maxTitleWidth - 5)}  Updated`
   lines.push(header)
   lines.push("─".repeat(header.length))
   for (const session of sessions) {
     const truncatedTitle = Locale.truncate(session.title, maxTitleWidth)
     const timeStr = Locale.todayTimeOrDateTime(session.time.updated)
-    const line = `${session.id.padEnd(maxIdWidth)}  ${truncatedTitle.padEnd(maxTitleWidth)}  ${timeStr}`
+    const line = showProject
+      ? `${session.id.padEnd(maxIdWidth)}  ${truncatedTitle.padEnd(maxTitleWidth)}  ${Locale.truncate(getProjectLabel(session), maxProjectWidth).padEnd(maxProjectWidth)}  ${timeStr}`
+      : `${session.id.padEnd(maxIdWidth)}  ${truncatedTitle.padEnd(maxTitleWidth)}  ${timeStr}`
     lines.push(line)
   }
 
   return lines.join(EOL)
 }
 
-function formatSessionJSON(sessions: Session.Info[]): string {
+function formatSessionJSON(sessions: ListedSession[], showProject = false): string {
   const jsonData = sessions.map((session) => ({
     id: session.id,
     title: session.title,
@@ -154,6 +171,18 @@ function formatSessionJSON(sessions: Session.Info[]): string {
     created: session.time.created,
     projectId: session.projectID,
     directory: session.directory,
+    ...(showProject && "project" in session
+      ? {
+          project: session.project,
+        }
+      : {}),
   }))
   return JSON.stringify(jsonData, null, 2)
+}
+
+function getProjectLabel(session: ListedSession) {
+  if ("project" in session) {
+    return session.project?.worktree ?? session.directory
+  }
+  return session.directory
 }

@@ -19,6 +19,7 @@ import { DialogThemeList } from "@tui/component/dialog-theme-list"
 import { DialogHelp } from "./ui/dialog-help"
 import { CommandProvider, useCommandDialog } from "@tui/component/dialog-command"
 import { DialogAgent } from "@tui/component/dialog-agent"
+import { DialogGlobalSessionList } from "@tui/component/dialog-global-session-list"
 import { DialogSessionList } from "@tui/component/dialog-session-list"
 import { DialogWorkspaceList } from "@tui/component/dialog-workspace-list"
 import { KeybindProvider } from "@tui/context/keybind"
@@ -370,6 +371,19 @@ function App() {
       },
       onSelect: () => {
         dialog.replace(() => <DialogSessionList />)
+      },
+    },
+    {
+      title: "Global sessions",
+      value: "session.list.global",
+      category: "Session",
+      suggested: true,
+      slash: {
+        name: "global-sessions",
+        aliases: ["all-sessions"],
+      },
+      onSelect: () => {
+        dialog.replace(() => <DialogGlobalSessionList />)
       },
     },
     ...(Flag.OPENCODE_EXPERIMENTAL_WORKSPACES
