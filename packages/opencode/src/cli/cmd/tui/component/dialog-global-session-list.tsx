@@ -12,6 +12,14 @@ import { createDebouncedSignal } from "../util/signal"
 import { Spinner } from "./spinner"
 import { useKeybind } from "../context/keybind"
 
+function formatPath(filepath: string) {
+  const home = process.env.HOME
+  if (!home) return filepath
+  if (filepath === home) return "~"
+  if (filepath.startsWith(home + "/")) return "~/" + filepath.slice(home.length + 1)
+  return filepath
+}
+
 export function DialogGlobalSessionList() {
   const dialog = useDialog()
   const route = useRoute()
@@ -51,7 +59,7 @@ export function DialogGlobalSessionList() {
         const isWorking = status?.type === "busy"
         return {
           title: x.title,
-          description: x.project?.worktree ?? x.directory,
+          description: formatPath(x.directory),
           bg: undefined,
           value: x.id,
           category,
