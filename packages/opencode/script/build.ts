@@ -191,6 +191,7 @@ for (const item of targets) {
     entrypoints: ["./src/index.ts", parserWorker, workerPath],
     define: {
       OPENCODE_VERSION: `'${Script.version}'`,
+      OPENCODE_BASE_VERSION: `'${pkg.version}'`,
       OPENCODE_MIGRATIONS: JSON.stringify(migrations),
       OTUI_TREE_SITTER_WORKER_PATH: bunfsRoot + workerRelativePath,
       OPENCODE_WORKER_PATH: workerPath,

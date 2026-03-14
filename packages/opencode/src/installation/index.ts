@@ -10,6 +10,7 @@ import { buffer } from "node:stream/consumers"
 
 declare global {
   const OPENCODE_VERSION: string
+  const OPENCODE_BASE_VERSION: string
   const OPENCODE_CHANNEL: string
 }
 
@@ -232,7 +233,9 @@ export namespace Installation {
   }
 
   export const VERSION = typeof OPENCODE_VERSION === "string" ? OPENCODE_VERSION : "local"
+  export const BASE_VERSION = typeof OPENCODE_BASE_VERSION === "string" ? OPENCODE_BASE_VERSION : VERSION
   export const CHANNEL = typeof OPENCODE_CHANNEL === "string" ? OPENCODE_CHANNEL : "local"
+  export const DISPLAY_VERSION = isPreview() ? `v${BASE_VERSION} · ${CHANNEL}` : `v${BASE_VERSION}`
   export const USER_AGENT = `opencode/${CHANNEL}/${VERSION}/${Flag.OPENCODE_CLIENT}`
 
   export async function latest(installMethod?: Method) {
