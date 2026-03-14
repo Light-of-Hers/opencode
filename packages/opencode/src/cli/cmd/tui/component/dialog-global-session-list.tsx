@@ -58,8 +58,8 @@ export function DialogGlobalSessionList() {
         const status = sync.data.session_status?.[x.id]
         const isWorking = status?.type === "busy"
         return {
-          title: x.title,
-          description: formatPath(x.directory),
+          title: formatPath(x.directory),
+          subtitle: x.title,
           bg: undefined,
           value: x.id,
           category,

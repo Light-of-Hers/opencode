@@ -34,6 +34,7 @@ export interface DialogSelectOption<T = any> {
   title: string
   value: T
   description?: string
+  subtitle?: string
   footer?: JSX.Element | string
   category?: string
   disabled?: boolean
@@ -126,7 +127,8 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
       if (!category) return acc
       return acc + (i > 0 ? 2 : 1)
     }, 0)
-    return flat().length + headers
+    const optionRows = flat().reduce((acc, option) => acc + 1 + (option.subtitle ? 1 : 0), 0)
+    return optionRows + headers
   })
 
   const dimensions = useTerminalDimensions()
@@ -321,6 +323,7 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
                       >
                         <Option
                           title={option.title}
+                          subtitle={option.subtitle}
                           footer={flatten() ? (option.category ?? option.footer) : option.footer}
                           description={option.description !== category ? option.description : undefined}
                           active={active()}
@@ -357,6 +360,7 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
 function Option(props: {
   title: string
   description?: string
+  subtitle?: string
   active?: boolean
   current?: boolean
   footer?: JSX.Element | string
@@ -378,19 +382,24 @@ function Option(props: {
           {props.gutter}
         </box>
       </Show>
-      <text
-        flexGrow={1}
-        fg={props.active ? fg : props.current ? theme.primary : theme.text}
-        attributes={props.active ? TextAttributes.BOLD : undefined}
-        overflow="hidden"
-        wrapMode="none"
-        paddingLeft={3}
-      >
-        {Locale.truncate(props.title, 61)}
-        <Show when={props.description}>
-          <span style={{ fg: props.active ? fg : theme.textMuted }}> {props.description}</span>
+      <box flexGrow={1} flexDirection="column" paddingLeft={3} overflow="hidden">
+        <text
+          fg={props.active ? fg : props.current ? theme.primary : theme.text}
+          attributes={props.active ? TextAttributes.BOLD : undefined}
+          overflow="hidden"
+          wrapMode="none"
+        >
+          {Locale.truncate(props.title, 61)}
+          <Show when={props.description}>
+            <span style={{ fg: props.active ? fg : theme.textMuted }}> {props.description}</span>
+          </Show>
+        </text>
+        <Show when={props.subtitle}>
+          <text fg={props.active ? fg : theme.textMuted} overflow="hidden" wrapMode="none">
+            {Locale.truncate(props.subtitle!, 61)}
+          </text>
         </Show>
-      </text>
+      </box>
       <Show when={props.footer}>
         <box flexShrink={0}>
           <text fg={props.active ? fg : theme.textMuted}>{props.footer}</text>
