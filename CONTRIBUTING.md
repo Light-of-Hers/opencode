@@ -39,6 +39,14 @@ https://github.com/anomalyco/models.dev
   bun dev
   ```
 
+- On a fresh machine, you can do the initial setup in one step:
+
+  ```bash
+  bash ./script/setup-dev.sh
+  ```
+
+  This is the same setup as the repo root `setup:dev` script. It installs Bun if needed, runs `bun install`, creates `~/.local/bin/opencode-dev` to run this checkout directly, and creates `~/.local/bin/opencode-install-dev` to rebuild and relink `~/.local/bin/opencode` to this repo's local build.
+
 ### Running against a different directory
 
 By default, `bun dev` runs OpenCode in the `packages/opencode` directory. To run it against a different directory or repository:

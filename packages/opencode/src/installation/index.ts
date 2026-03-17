@@ -232,10 +232,13 @@ export namespace Installation {
     await Process.text([process.execPath, "--version"], { nothrow: true })
   }
 
-  export const VERSION = typeof OPENCODE_VERSION === "string" ? OPENCODE_VERSION : "local"
-  export const BASE_VERSION = typeof OPENCODE_BASE_VERSION === "string" ? OPENCODE_BASE_VERSION : VERSION
-  export const CHANNEL = typeof OPENCODE_CHANNEL === "string" ? OPENCODE_CHANNEL : "local"
-  export const DISPLAY_VERSION = isPreview() ? `v${BASE_VERSION} · ${CHANNEL}` : `v${BASE_VERSION}`
+  export const VERSION =
+    typeof OPENCODE_VERSION === "string" ? OPENCODE_VERSION : process.env.OPENCODE_VERSION || "local"
+  export const BASE_VERSION =
+    typeof OPENCODE_BASE_VERSION === "string" ? OPENCODE_BASE_VERSION : process.env.OPENCODE_BASE_VERSION || VERSION
+  export const CHANNEL =
+    typeof OPENCODE_CHANNEL === "string" ? OPENCODE_CHANNEL : process.env.OPENCODE_CHANNEL || "local"
+  export const DISPLAY_VERSION = isPreview() ? `v${BASE_VERSION} - ${CHANNEL}` : `v${BASE_VERSION}`
   export const USER_AGENT = `opencode/${CHANNEL}/${VERSION}/${Flag.OPENCODE_CLIENT}`
 
   export async function latest(installMethod?: Method) {
