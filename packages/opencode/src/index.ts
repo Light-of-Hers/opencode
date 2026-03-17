@@ -35,6 +35,8 @@ import { Global } from "./global"
 import { JsonMigration } from "./storage/json-migration"
 import { Database } from "./storage/db"
 
+if (process.env.OPENCODE_CWD) process.chdir(process.env.OPENCODE_CWD)
+
 process.on("unhandledRejection", (e) => {
   Log.Default.error("rejection", {
     e: e instanceof Error ? e.message : e,

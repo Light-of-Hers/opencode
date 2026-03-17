@@ -56,6 +56,7 @@ else
 fi
 
 PATH="\${HOME}/.bun/bin:\${PATH}" \
+OPENCODE_CWD="\${PWD}" \
 OPENCODE_BASE_VERSION="\$base" \
 OPENCODE_CHANNEL="\$channel" \
 exec "\$bun" --cwd "\$root/packages/opencode" src/index.ts "\$@"
