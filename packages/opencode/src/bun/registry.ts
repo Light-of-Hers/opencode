@@ -5,6 +5,15 @@ import { Process } from "../util/process"
 export namespace PackageRegistry {
   const log = Log.create({ service: "bun" })
 
+  function invalid(pkg: string, latest: string, cached: string) {
+    log.warn("Failed to compare package versions, treating cache as outdated", {
+      pkg,
+      latestVersion: latest,
+      cachedVersion: cached,
+    })
+    return true
+  }
+
   function which() {
     return process.execPath
   }
@@ -36,9 +45,18 @@ export namespace PackageRegistry {
       return false
     }
 
-    const isRange = /[\s^~*xX<>|=]/.test(cachedVersion)
-    if (isRange) return !semver.satisfies(latestVersion, cachedVersion)
+    const latest = semver.valid(latestVersion)
+    if (!latest) return invalid(pkg, latestVersion, cachedVersion)
 
-    return semver.lt(cachedVersion, latestVersion)
+    const isRange = /[\s^~*xX<>|=]/.test(cachedVersion)
+    if (isRange) {
+      const range = semver.validRange(cachedVersion)
+      if (!range) return invalid(pkg, latestVersion, cachedVersion)
+      return !semver.satisfies(latest, range)
+    }
+
+    const cached = semver.valid(cachedVersion)
+    if (!cached) return invalid(pkg, latestVersion, cachedVersion)
+    return semver.lt(cached, latest)
   }
 }
