@@ -241,6 +241,7 @@ export namespace Config {
       result.permission = mergeDeep(perms, result.permission ?? {})
     }
 
+    if (result.follow_symlinks === undefined) result.follow_symlinks = true
     if (!result.username) result.username = os.userInfo().username
 
     // Handle migration from autoshare to share field
@@ -1052,7 +1053,7 @@ export namespace Config {
         })
         .optional(),
       plugin: z.string().array().optional(),
-      follow_symlinks: z.boolean().optional().describe("Follow symbolic links when searching files (default: false)"),
+      follow_symlinks: z.boolean().optional().describe("Follow symbolic links when searching files (default: true)"),
       snapshot: z.boolean().optional(),
       share: z
         .enum(["manual", "auto", "disabled"])

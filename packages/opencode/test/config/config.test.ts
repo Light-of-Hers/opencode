@@ -62,7 +62,26 @@ test("loads config with defaults when no files exist", async () => {
     directory: tmp.path,
     fn: async () => {
       const config = await Config.get()
+      expect(config.follow_symlinks).toBe(true)
       expect(config.username).toBeDefined()
+    },
+  })
+})
+
+test("respects explicit follow_symlinks false", async () => {
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      await writeConfig(dir, {
+        $schema: "https://opencode.ai/config.json",
+        follow_symlinks: false,
+      })
+    },
+  })
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const config = await Config.get()
+      expect(config.follow_symlinks).toBe(false)
     },
   })
 })
