@@ -95,8 +95,6 @@ EOF
 
 chmod +x "$opencode_dev" "$opencode_install"
 
-"$opencode_install"
-
 echo "Configured development commands:"
 echo "  opencode-dev"
 echo "  opencode-install-dev"
