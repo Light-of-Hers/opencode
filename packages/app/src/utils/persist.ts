@@ -2,7 +2,7 @@ import { Platform, usePlatform } from "@/context/platform"
 import { makePersisted, type AsyncStorage, type SyncStorage } from "@solid-primitives/storage"
 import { checksum } from "@opencode-ai/shared/util/encode"
 import { createResource, type Accessor } from "solid-js"
-import type { SetStoreFunction, Store } from "solid-js/store"
+import { reconcile, type SetStoreFunction, type Store } from "solid-js/store"
 
 type InitType = Promise<string> | string | null
 type PersistedWithReady<T> = [
@@ -17,10 +17,113 @@ type PersistTarget = {
   key: string
   legacy?: string[]
   migrate?: (value: unknown) => unknown
+  sync?: boolean
+}
+
+// --- gateway sync ---
+
+const gatewayEnabled =
+  typeof document !== "undefined" && !!document.querySelector('meta[name="opencode-gateway"]')
+
+let gatewayPending: Record<string, unknown> = {}
+let gatewayRaw: Record<string, string | null> = {}
+const gatewaySynced = new Map<string, string | null>()
+let gatewayTimer: ReturnType<typeof setTimeout> | null = null
+
+function gatewayFlush() {
+  const data = gatewayPending
+  const raw = gatewayRaw
+  gatewayPending = {}
+  gatewayRaw = {}
+  gatewayTimer = null
+  if (!Object.keys(data).length) return
+  fetch(`${location.origin}/settings`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  })
+    .then(() => {
+      for (const k of Object.keys(raw)) gatewaySynced.set(k, raw[k])
+      localStorage.setItem(TS_KEY, String(Date.now()))
+    })
+    .catch(() => {})
+}
+
+function gatewaySync(key: string, value: string | null) {
+  if (!gatewayEnabled) return
+  // In gateway mode, server list is managed by /gateway/servers API, not settings sync
+  if (key === "server") return
+  if (gatewaySynced.has(key) && gatewaySynced.get(key) === value) return
+  try {
+    gatewayPending[key] = value ? JSON.parse(value) : null
+    gatewayRaw[key] = value
+  } catch {
+    return
+  }
+  if (gatewayTimer) clearTimeout(gatewayTimer)
+  gatewayTimer = setTimeout(gatewayFlush, 500)
 }
 
 const LEGACY_STORAGE = "default.dat"
 const GLOBAL_STORAGE = "opencode.global.dat"
+
+let gatewayEtag: string | null = null
+
+const TS_KEY = `${GLOBAL_STORAGE}:_gateway_ts`
+
+export async function gatewaySeed() {
+  if (!gatewayEnabled) return
+  try {
+    const res = await fetch(`${location.origin}/settings`)
+    if (!res.ok) return
+    gatewayEtag = res.headers.get("etag")
+    const data = (await res.json()) as Record<string, unknown>
+    const remote = typeof data._ts === "number" ? data._ts : 0
+    const local = Number(localStorage.getItem(TS_KEY)) || 0
+    const newer = remote > local
+    for (const [k, v] of Object.entries(data)) {
+      if (k === "_ts" || v === null) continue
+      const raw = JSON.stringify(v)
+      const key = `${GLOBAL_STORAGE}:${k}`
+      if (localStorage.getItem(key) === null || newer) localStorage.setItem(key, raw)
+      gatewaySynced.set(k, raw)
+    }
+    if (newer) localStorage.setItem(TS_KEY, String(remote))
+  } catch {}
+}
+
+function gatewayPoll() {
+  const headers: HeadersInit = {}
+  if (gatewayEtag) headers["If-None-Match"] = gatewayEtag
+  fetch(`${location.origin}/settings`, { headers })
+    .then(async (res) => {
+      if (res.status === 304 || !res.ok) return
+      gatewayEtag = res.headers.get("etag")
+      const data = (await res.json()) as Record<string, unknown>
+      const remote = typeof data._ts === "number" ? data._ts : 0
+      const local = Number(localStorage.getItem(TS_KEY)) || 0
+      if (remote <= local) return
+      let changed = false
+      for (const [k, v] of Object.entries(data)) {
+        if (k === "_ts" || k in gatewayPending) continue
+        const raw = v !== null ? JSON.stringify(v) : null
+        const key = `${GLOBAL_STORAGE}:${k}`
+        if (localStorage.getItem(key) === raw) continue
+        if (raw !== null) localStorage.setItem(key, raw)
+        else localStorage.removeItem(key)
+        gatewaySynced.set(k, raw)
+        changed = true
+      }
+      if (changed) {
+        localStorage.setItem(TS_KEY, String(remote))
+        window.dispatchEvent(new CustomEvent("gateway-sync"))
+      }
+    })
+    .catch(() => {})
+}
+
+if (gatewayEnabled) setInterval(gatewayPoll, 30_000)
+
 const LOCAL_PREFIX = "opencode."
 const fallback = new Map<string, boolean>()
 
@@ -310,7 +413,7 @@ export const PersistTesting = {
 
 export const Persist = {
   global(key: string, legacy?: string[]): PersistTarget {
-    return { storage: GLOBAL_STORAGE, key, legacy }
+    return { storage: GLOBAL_STORAGE, key, legacy, sync: true }
   },
   workspace(dir: string, key: string, legacy?: string[]): PersistTarget {
     return { storage: workspaceStorage(dir), key: `workspace:${key}`, legacy }
@@ -399,9 +502,11 @@ export function persisted<T>(
         },
         setItem: (key, value) => {
           current.setItem(key, value)
+          if (config.sync) gatewaySync(key, value)
         },
         removeItem: (key) => {
           current.removeItem(key)
+          if (config.sync) gatewaySync(key, null)
         },
       }
 
@@ -455,6 +560,16 @@ export function persisted<T>(
 
   const [state, setState, init] = makePersisted(store, { name: config.key, storage })
 
+  if (config.sync && gatewayEnabled && !isDesktop) {
+    window.addEventListener("gateway-sync", () => {
+      const raw = (storage as SyncStorage).getItem(config.key)
+      if (raw === null) return
+      const val = parse(raw)
+      if (val === undefined) return
+      setState(reconcile(val as T))
+    })
+  }
+
   const isAsync = init instanceof Promise
   const [ready] = createResource(
     () => init,
@@ -469,7 +584,7 @@ export function persisted<T>(
     state,
     setState,
     init,
-    Object.assign(() => (ready.loading ? false : ready.latest === true), {
+    Object.assign(() => ready() === true, {
       promise: init instanceof Promise ? init : undefined,
     }),
   ]

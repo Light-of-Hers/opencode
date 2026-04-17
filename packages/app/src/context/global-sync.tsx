@@ -12,6 +12,7 @@ import { getFilename } from "@opencode-ai/shared/util/path"
 import { createContext, getOwner, onCleanup, onMount, type ParentProps, untrack, useContext } from "solid-js"
 import { createStore, produce, reconcile } from "solid-js/store"
 import { useLanguage } from "@/context/language"
+import { useServer } from "@/context/server"
 import { Persist, persisted } from "@/utils/persist"
 import type { InitError } from "../pages/error"
 import { useGlobalSDK } from "./global-sdk"
@@ -47,6 +48,7 @@ export const loadSessionsQuery = (directory: string) =>
 
 function createGlobalSync() {
   const globalSDK = useGlobalSDK()
+  const server = useServer()
   const language = useLanguage()
   const owner = getOwner()
   if (!owner) throw new Error("GlobalSync must be created within owner")
@@ -57,14 +59,32 @@ function createGlobalSync() {
   const sessionMeta = new Map<string, { limit: number }>()
 
   const [projectCache, setProjectCache, projectInit] = persisted(
-    Persist.global("globalSync.project", ["globalSync.project.v1"]),
-    createStore({ value: [] as Project[] }),
+    {
+      ...Persist.global("globalSync.project", ["globalSync.project.v1"]),
+      migrate: (v: unknown) => {
+        if (!v || typeof v !== "object") return v
+        const obj = v as { value?: unknown }
+        if (Array.isArray(obj.value)) return { value: { "": obj.value } }
+        return v
+      },
+    },
+    createStore({ value: {} as Record<string, Project[]> }),
   )
+
+  // Stable key: gatewayKey for gateway-mode connections (same across all clients
+  // hitting the same backend), server URL otherwise.
+  const serverKey = () => {
+    const conn = server.current
+    if (conn?.type === "http" && conn.gatewayKey) return conn.gatewayKey
+    return globalSDK.url
+  }
+
+  const cached = serverKey() ? (projectCache.value[serverKey()] ?? projectCache.value[""] ?? []) : []
 
   const [globalStore, setGlobalStore] = createStore<GlobalStore>({
     ready: false,
     path: { state: "", config: "", worktree: "", directory: "", home: "" },
-    project: projectCache.value,
+    project: cached,
     session_todo: {},
     provider: { all: [], connected: [], default: {} },
     provider_auth: {},
@@ -89,10 +109,14 @@ function createGlobalSync() {
   })
 
   const cacheProjects = () => {
-    setProjectCache(
-      "value",
-      untrack(() => globalStore.project.map(sanitizeProject)),
-    )
+    const key = serverKey()
+    if (!key) return
+    const projects = untrack(() => globalStore.project.map(sanitizeProject))
+    // Don't overwrite an existing cache entry with an empty list — the server
+    // may return [] because no instances are active yet, but we still want to
+    // show the previously-known project list on next load.
+    if (projects.length === 0 && (projectCache.value[key] ?? []).length > 0) return
+    setProjectCache("value", key, projects)
   }
 
   const setProjects = (next: Project[] | ((draft: Project[]) => void)) => {
@@ -126,7 +150,8 @@ function createGlobalSync() {
     void projectInit.then(() => {
       if (!active) return
       if (projectWritten) return
-      const cached = projectCache.value
+      const key = serverKey()
+      const cached = key ? (projectCache.value[key] ?? projectCache.value[""] ?? []) : []
       if (cached.length === 0) return
       setGlobalStore("project", cached)
     })
@@ -203,53 +228,46 @@ function createGlobalSync() {
     }
 
     const limit = Math.max(store.limit + SESSION_RECENT_LIMIT, SESSION_RECENT_LIMIT)
-    const promise = queryClient
-      .fetchQuery({
-        ...loadSessionsQuery(directory),
-        queryFn: () =>
-          loadRootSessionsWithFallback({
-            directory,
-            limit,
-            list: (query) => globalSDK.client.session.list(query),
-          })
-            .then((x) => {
-              const nonArchived = (x.data ?? [])
-                .filter((s) => !!s?.id)
-                .filter((s) => !s.time?.archived)
-                .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
-              const limit = store.limit
-              const childSessions = store.session.filter((s) => !!s.parentID)
-              const sessions = trimSessions([...nonArchived, ...childSessions], {
-                limit,
-                permission: store.permission,
-              })
-              setStore(
-                "sessionTotal",
-                estimateRootSessionTotal({
-                  count: nonArchived.length,
-                  limit: x.limit,
-                  limited: x.limited,
-                }),
-              )
-              setStore("session", reconcile(sessions, { key: "id" }))
-              cleanupDroppedSessionCaches(store, setStore, sessions, setSessionTodo)
-              sessionMeta.set(directory, { limit })
-            })
-            .catch((err) => {
-              console.error("Failed to load sessions", err)
-              const project = getFilename(directory)
-              showToast({
-                variant: "error",
-                title: language.t("toast.session.listFailed.title", { project }),
-                description: formatServerError(err, language.t),
-              })
-            })
-            .then(() => null),
+    const promise = loadRootSessionsWithFallback({
+      directory,
+      limit,
+      list: (query) => globalSDK.client.session.list(query),
+    })
+      .then((x) => {
+        const nonArchived = (x.data ?? [])
+          .filter((s) => !!s?.id)
+          .filter((s) => !s.time?.archived)
+          .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+        const limit = store.limit
+        const childSessions = store.session.filter((s) => !!s.parentID)
+        const sessions = trimSessions([...nonArchived, ...childSessions], {
+          limit,
+          permission: store.permission,
+        })
+        setStore(
+          "sessionTotal",
+          estimateRootSessionTotal({
+            count: nonArchived.length,
+            limit: x.limit,
+            limited: x.limited,
+          }),
+        )
+        setStore("session", reconcile(sessions, { key: "id" }))
+        cleanupDroppedSessionCaches(store, setStore, sessions, setSessionTodo)
+        sessionMeta.set(directory, { limit })
       })
-      .then(() => {})
+      .catch((err) => {
+        console.error("Failed to load sessions", err)
+        const project = getFilename(directory)
+        showToast({
+          variant: "error",
+          title: language.t("toast.session.listFailed.title", { project }),
+          description: formatServerError(err, language.t),
+        })
+      })
 
     sessionLoads.set(directory, promise)
-    void promise.finally(() => {
+    promise.finally(() => {
       sessionLoads.delete(directory)
       children.unpin(directory)
     })
@@ -262,7 +280,7 @@ function createGlobalSync() {
     if (pending) return pending
 
     children.pin(directory)
-    const promise = Promise.resolve().then(async () => {
+    const promise = (async () => {
       const child = children.ensureChild(directory)
       const cache = children.vcsCache.get(directory)
       if (!cache) return
@@ -283,10 +301,10 @@ function createGlobalSync() {
         translate: language.t,
         queryClient,
       })
-    })
+    })()
 
     booting.set(directory, promise)
-    void promise.finally(() => {
+    promise.finally(() => {
       booting.delete(directory)
       children.unpin(directory)
     })
@@ -330,7 +348,7 @@ function createGlobalSync() {
       setSessionTodo,
       vcsCache: children.vcsCache.get(directory),
       loadLsp: () => {
-        void sdkFor(directory)
+        sdkFor(directory)
           .lsp.status()
           .then((x) => {
             setStore("lsp", x.data ?? [])
@@ -341,6 +359,25 @@ function createGlobalSync() {
   })
 
   onCleanup(unsub)
+
+  // When the SSE heartbeat times out (server went down), reset all busy/retry
+  // session statuses to idle so spinners and progress bars clear immediately.
+  onCleanup(
+    globalSDK.event.onDown(() => {
+      const idle = { type: "idle" } as const
+      for (const [, setStore] of Object.values(children.children)) {
+        setStore(
+          "session_status",
+          produce((draft) => {
+            for (const id of Object.keys(draft)) {
+              if (draft[id].type !== "idle") draft[id] = idle
+            }
+          }),
+        )
+      }
+    }),
+  )
+
   onCleanup(() => {
     queue.dispose()
   })
@@ -373,13 +410,13 @@ function createGlobalSync() {
         eventFrame = undefined
         eventTimer = setTimeout(() => {
           eventTimer = undefined
-          void globalSDK.event.start()
+          globalSDK.event.start()
         }, 0)
       })
     } else {
       eventTimer = setTimeout(() => {
         eventTimer = undefined
-        void globalSDK.event.start()
+        globalSDK.event.start()
       }, 0)
     }
     void bootstrap()

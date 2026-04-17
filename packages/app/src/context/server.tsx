@@ -1,5 +1,5 @@
 import { createSimpleContext } from "@opencode-ai/ui/context"
-import { type Accessor, batch, createEffect, createMemo, onCleanup } from "solid-js"
+import { type Accessor, batch, createEffect, createMemo, createSignal, onCleanup } from "solid-js"
 import { createStore } from "solid-js/store"
 import { Persist, persisted } from "@/utils/persist"
 import { useCheckServerHealth } from "@/utils/server-health"
@@ -7,6 +7,7 @@ import { useCheckServerHealth } from "@/utils/server-health"
 type StoredProject = { worktree: string; expanded: boolean }
 type StoredServer = string | ServerConnection.HttpBase | ServerConnection.Http
 const HEALTH_POLL_INTERVAL_MS = 10_000
+const gatewayEnabled = typeof document !== "undefined" && !!document.querySelector('meta[name="opencode-gateway"]')
 
 export function normalizeServerUrl(input: string) {
   const trimmed = input.trim()
@@ -33,6 +34,14 @@ function isLocalHost(url: string) {
   if (host === "localhost" || host === "127.0.0.1") return "local"
 }
 
+// Stable key for a connection — uses gatewayKey when available so all clients
+// connecting through the same gateway share the same sidebar state.
+function stableKey(conn: ServerConnection.Any | undefined): string {
+  if (!conn) return ""
+  if (conn.type === "http" && conn.gatewayKey) return conn.gatewayKey
+  return projectsKey(ServerConnection.key(conn))
+}
+
 export namespace ServerConnection {
   type Base = { displayName?: string }
 
@@ -46,6 +55,7 @@ export namespace ServerConnection {
   export type Http = {
     type: "http"
     http: HttpBase
+    gatewayKey?: string
   } & Base
 
   export type Sidecar = {
@@ -92,38 +102,76 @@ export namespace ServerConnection {
   export const Key = { make: (v: string) => v as Key }
 }
 
+const SEED_KEY = "opencode.server.seeded"
+
 export const { use: useServer, provider: ServerProvider } = createSimpleContext({
   name: "Server",
   init: (props: {
     defaultServer: ServerConnection.Key
     disableHealthCheck?: boolean
     servers?: Array<ServerConnection.Any>
+    seed?: string
   }) => {
     const checkServerHealth = useCheckServerHealth()
 
-    const [store, setStore, _, ready] = persisted(
+    // server list + credentials — NOT synced to gateway (contains credentials)
+    const [store, setStore, storeInit, ready] = persisted(
       Persist.global("server", ["server.v3"]),
       createStore({
         list: [] as StoredServer[],
+        lastActive: "" as string,
+      }),
+    )
+
+    // sidebar state — synced to gateway, keyed by stable server ID (gatewayKey or projectsKey)
+    const [sidebar, setSidebar] = persisted(
+      Persist.global("sidebar"),
+      createStore({
         projects: {} as Record<string, StoredProject[]>,
         lastProject: {} as Record<string, string>,
       }),
     )
 
+    // Seed initial server into store.list on first run so it's user-removable.
+    // Uses a separate localStorage flag to distinguish "never seeded" from "user emptied the list".
+    createEffect(() => {
+      if (!ready()) return
+      try {
+        if (localStorage.getItem(SEED_KEY) === "1") return
+        if (props.seed) {
+          const normalized = normalizeServerUrl(props.seed)
+          if (normalized && !store.list.some((x) => url(x) === normalized))
+            setStore("list", store.list.length, { type: "http" as const, http: { url: normalized } })
+        }
+        localStorage.setItem(SEED_KEY, "1")
+      } catch {}
+    })
+
     const url = (x: StoredServer) => (typeof x === "string" ? x : "type" in x ? x.http.url : x.url)
 
+    // Track gateway servers removed in this session (props.servers is immutable)
+    const [removed, setRemoved] = createSignal(new Set<string>())
+
     const allServers = createMemo((): Array<ServerConnection.Any> => {
-      const servers = [
-        ...(props.servers ?? []),
-        ...store.list.map((value) =>
-          typeof value === "string"
-            ? {
-                type: "http" as const,
-                http: { url: value },
-              }
-            : value,
-        ),
-      ]
+      // In gateway mode, server list comes from props.servers (fetched from /gateway/servers)
+      // and store.list additions from the current session. Skip old store.list entries
+      // that have raw backend URLs (not proxy paths).
+      const stored = gatewayEnabled
+        ? store.list
+            .map((value) =>
+              typeof value === "string" ? { type: "http" as const, http: { url: value } } : value,
+            )
+            .filter((v) => "gatewayKey" in v)
+        : store.list.map((value) =>
+            typeof value === "string" ? { type: "http" as const, http: { url: value } } : value,
+          )
+
+      const rem = removed()
+      const injected = gatewayEnabled
+        ? (props.servers ?? []).filter((s) => !rem.has(ServerConnection.key(s)))
+        : (props.servers ?? [])
+
+      const servers = [...injected, ...stored]
 
       const deduped = new Map(
         servers.map((value) => {
@@ -136,9 +184,18 @@ export const { use: useServer, provider: ServerProvider } = createSimpleContext(
     })
 
     const [state, setState] = createStore({
-      active: props.defaultServer,
+      active: (store.lastActive || props.defaultServer) as ServerConnection.Key,
       healthy: undefined as boolean | undefined,
     })
+
+    // Desktop: persisted() is async — hydrate lastActive once store is ready
+    if (storeInit instanceof Promise) {
+      void storeInit.then(() => {
+        if (store.lastActive && state.active === props.defaultServer) {
+          setState("active", store.lastActive as ServerConnection.Key)
+        }
+      })
+    }
 
     const healthy = () => state.healthy
 
@@ -168,7 +225,9 @@ export const { use: useServer, provider: ServerProvider } = createSimpleContext(
     }
 
     function setActive(input: ServerConnection.Key) {
-      if (state.active !== input) setState("active", input)
+      if (state.active === input) return
+      setState("active", input)
+      setStore("lastActive", input)
     }
 
     function add(input: ServerConnection.Http) {
@@ -189,15 +248,18 @@ export const { use: useServer, provider: ServerProvider } = createSimpleContext(
 
     function remove(key: ServerConnection.Key) {
       const list = store.list.filter((x) => url(x) !== key)
+      // Track removed gateway servers so props.servers is filtered
+      if (gatewayEnabled) setRemoved((prev) => new Set([...prev, key]))
       batch(() => {
         setStore("list", list)
         if (state.active === key) {
-          const next = list[0]
-          setState("active", next ? ServerConnection.Key.make(url(next)) : props.defaultServer)
+          const next = allServers().find((s) => ServerConnection.key(s) !== key)
+          setState("active", next ? ServerConnection.key(next) : props.defaultServer)
         }
       })
     }
 
+    const loaded = createMemo(() => ready())
     const isReady = createMemo(() => ready() && !!state.active)
 
     const check = (conn: ServerConnection.Any) => checkServerHealth(conn.http).then((x) => x.healthy)
@@ -214,17 +276,18 @@ export const { use: useServer, provider: ServerProvider } = createSimpleContext(
       onCleanup(startHealthPolling(current_))
     })
 
-    const origin = createMemo(() => projectsKey(state.active))
-    const projectsList = createMemo(() => store.projects[origin()] ?? [])
     const current: Accessor<ServerConnection.Any | undefined> = createMemo(
       () => allServers().find((s) => ServerConnection.key(s) === state.active) ?? allServers()[0],
     )
+    const origin = createMemo(() => stableKey(current()))
+    const projectsList = createMemo(() => sidebar.projects[origin()] ?? [])
     const isLocal = createMemo(() => {
       const c = current()
       return (c?.type === "sidecar" && c.variant === "base") || (c?.type === "http" && isLocalHost(c.http.url))
     })
 
     return {
+      loaded,
       ready: isReady,
       healthy,
       isLocal,
@@ -248,54 +311,50 @@ export const { use: useServer, provider: ServerProvider } = createSimpleContext(
         open(directory: string) {
           const key = origin()
           if (!key) return
-          const current = store.projects[key] ?? []
-          if (current.find((x) => x.worktree === directory)) return
-          setStore("projects", key, [{ worktree: directory, expanded: true }, ...current])
+          const list = sidebar.projects[key] ?? []
+          if (list.find((x) => x.worktree === directory)) return
+          setSidebar("projects", key, [{ worktree: directory, expanded: true }, ...list])
         },
         close(directory: string) {
           const key = origin()
           if (!key) return
-          const current = store.projects[key] ?? []
-          setStore(
-            "projects",
-            key,
-            current.filter((x) => x.worktree !== directory),
-          )
+          const list = sidebar.projects[key] ?? []
+          setSidebar("projects", key, list.filter((x) => x.worktree !== directory))
         },
         expand(directory: string) {
           const key = origin()
           if (!key) return
-          const current = store.projects[key] ?? []
-          const index = current.findIndex((x) => x.worktree === directory)
-          if (index !== -1) setStore("projects", key, index, "expanded", true)
+          const list = sidebar.projects[key] ?? []
+          const index = list.findIndex((x) => x.worktree === directory)
+          if (index !== -1) setSidebar("projects", key, index, "expanded", true)
         },
         collapse(directory: string) {
           const key = origin()
           if (!key) return
-          const current = store.projects[key] ?? []
-          const index = current.findIndex((x) => x.worktree === directory)
-          if (index !== -1) setStore("projects", key, index, "expanded", false)
+          const list = sidebar.projects[key] ?? []
+          const index = list.findIndex((x) => x.worktree === directory)
+          if (index !== -1) setSidebar("projects", key, index, "expanded", false)
         },
         move(directory: string, toIndex: number) {
           const key = origin()
           if (!key) return
-          const current = store.projects[key] ?? []
-          const fromIndex = current.findIndex((x) => x.worktree === directory)
+          const list = sidebar.projects[key] ?? []
+          const fromIndex = list.findIndex((x) => x.worktree === directory)
           if (fromIndex === -1 || fromIndex === toIndex) return
-          const result = [...current]
+          const result = [...list]
           const [item] = result.splice(fromIndex, 1)
           result.splice(toIndex, 0, item)
-          setStore("projects", key, result)
+          setSidebar("projects", key, result)
         },
         last() {
           const key = origin()
           if (!key) return
-          return store.lastProject[key]
+          return sidebar.lastProject[key]
         },
         touch(directory: string) {
           const key = origin()
           if (!key) return
-          setStore("lastProject", key, directory)
+          setSidebar("lastProject", key, directory)
         },
       },
     }

@@ -39,6 +39,7 @@ export const { use: useGlobalSDK, provider: GlobalSDKProvider } = createSimpleCo
       signal: abort.signal,
       fetch: eventFetch,
       server: currentServer.http,
+      gatewayKey: currentServer.type === "http" ? currentServer.gatewayKey : undefined,
     })
     const emitter = createGlobalEmitter<{
       [key: string]: Event
@@ -111,11 +112,17 @@ export const { use: useGlobalSDK, provider: GlobalSDKProvider } = createSimpleCo
     const HEARTBEAT_TIMEOUT_MS = 15_000
     let lastEventAt = Date.now()
     let heartbeat: ReturnType<typeof setTimeout> | undefined
+    let downCallbacks = new Set<() => void>()
+    const onDown = (cb: () => void) => {
+      downCallbacks.add(cb)
+      return () => downCallbacks.delete(cb)
+    }
     const resetHeartbeat = () => {
       lastEventAt = Date.now()
       if (heartbeat) clearTimeout(heartbeat)
       heartbeat = setTimeout(() => {
         attempt?.abort()
+        for (const cb of downCallbacks) cb()
       }, HEARTBEAT_TIMEOUT_MS)
     }
     const clearHeartbeat = () => {
@@ -128,7 +135,6 @@ export const { use: useGlobalSDK, provider: GlobalSDKProvider } = createSimpleCo
       if (started) return run
       started = true
       run = (async () => {
-        // oxlint-disable-next-line no-unmodified-loop-condition -- `started` is set to false by stop() which also aborts; both flags are checked to allow graceful exit
         while (!abort.signal.aborted && started) {
           attempt = new AbortController()
           lastEventAt = Date.now()
@@ -159,9 +165,7 @@ export const { use: useGlobalSDK, provider: GlobalSDKProvider } = createSimpleCo
               if (event.payload.type === "sync") {
                 continue
               }
-
-              const payload = event.payload as Event
-
+              const payload = event.payload
               const k = key(directory, payload)
               if (k) {
                 const i = coalesced.get(k)
@@ -232,6 +236,7 @@ export const { use: useGlobalSDK, provider: GlobalSDKProvider } = createSimpleCo
       server: server.current.http,
       fetch: platform.fetch,
       throwOnError: true,
+      gatewayKey: server.current.type === "http" ? server.current.gatewayKey : undefined,
     })
 
     return {
@@ -241,6 +246,7 @@ export const { use: useGlobalSDK, provider: GlobalSDKProvider } = createSimpleCo
         on: emitter.on.bind(emitter),
         listen: emitter.listen.bind(emitter),
         start,
+        onDown,
       },
       createClient(opts: Omit<Parameters<typeof createSdkForServer>[0], "server" | "fetch">) {
         const s = server.current
@@ -248,6 +254,7 @@ export const { use: useGlobalSDK, provider: GlobalSDKProvider } = createSimpleCo
         return createSdkForServer({
           server: s.http,
           fetch: platform.fetch,
+          gatewayKey: s.type === "http" ? s.gatewayKey : undefined,
           ...opts,
         })
       },

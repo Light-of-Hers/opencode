@@ -7,6 +7,7 @@ import { dict as en } from "@/i18n/en"
 import { dict as zh } from "@/i18n/zh"
 import { handleNotificationClick } from "@/utils/notification-click"
 import pkg from "../package.json"
+import { gatewaySeed } from "@/utils/persist"
 import { ServerConnection } from "./context/server"
 
 const DEFAULT_SERVER_URL_KEY = "opencode.settings.dat:defaultServerUrl"
@@ -97,7 +98,10 @@ if (!(root instanceof HTMLElement) && import.meta.env.DEV) {
   throw new Error(getRootNotFoundError())
 }
 
-const getCurrentUrl = () => {
+const gateway = typeof document !== "undefined" && !!document.querySelector('meta[name="opencode-gateway"]')
+
+const getCurrentUrl = (): string | undefined => {
+  if (gateway) return undefined
   if (location.hostname.includes("opencode.ai")) return "http://localhost:4096"
   if (import.meta.env.DEV)
     return `http://${import.meta.env.VITE_OPENCODE_SERVER_HOST ?? "localhost"}:${import.meta.env.VITE_OPENCODE_SERVER_PORT ?? "4096"}`
@@ -107,7 +111,24 @@ const getCurrentUrl = () => {
 const getDefaultUrl = () => {
   const lsDefault = readDefaultServerUrl()
   if (lsDefault) return lsDefault
-  return getCurrentUrl()
+  return getCurrentUrl() ?? "none"
+}
+
+// Fetch gateway servers and construct ServerConnection objects
+async function fetchGatewayServers(): Promise<ServerConnection.Http[]> {
+  try {
+    const res = await fetch("/gateway/servers")
+    if (!res.ok) return []
+    const list = (await res.json()) as Array<{ key: string; name?: string; healthy: boolean }>
+    return list.map((s) => ({
+      type: "http" as const,
+      displayName: s.name,
+      http: { url: `${location.origin}/s/${s.key}` },
+      gatewayKey: s.key,
+    }))
+  } catch {
+    return []
+  }
 }
 
 const platform: Platform = {
@@ -125,16 +146,22 @@ const platform: Platform = {
   setDefaultServer: writeDefaultServerUrl,
 }
 
+if (gateway) await gatewaySeed()
+const gatewayServers = gateway ? await fetchGatewayServers() : []
+
 if (root instanceof HTMLElement) {
-  const server: ServerConnection.Http = { type: "http", http: { url: getCurrentUrl() } }
+  const defaultServer = gateway && gatewayServers.length > 0
+    ? ServerConnection.Key.make(ServerConnection.key(gatewayServers[0]))
+    : ServerConnection.Key.make(getDefaultUrl())
+
   render(
     () => (
       <PlatformProvider value={platform}>
         <AppBaseProviders>
           <AppInterface
-            defaultServer={ServerConnection.Key.make(getDefaultUrl())}
-            servers={[server]}
-            disableHealthCheck
+            defaultServer={defaultServer}
+            servers={gateway ? gatewayServers : undefined}
+            seed={getCurrentUrl()}
           />
         </AppBaseProviders>
       </PlatformProvider>
