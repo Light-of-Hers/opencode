@@ -4,8 +4,7 @@ import { useRoute } from "@tui/context/route"
 import { useSync } from "@tui/context/sync"
 import type { GlobalSession } from "@opencode-ai/sdk/v2"
 import { createMemo, createSignal, createResource, onMount } from "solid-js"
-import { Locale } from "@/util/locale"
-import { useTheme } from "../context/theme"
+import * as Locale from "@/util/locale"
 import { useSDK } from "../context/sdk"
 import { DialogSessionRename } from "./dialog-session-rename"
 import { createDebouncedSignal } from "../util/signal"
@@ -24,7 +23,6 @@ export function DialogGlobalSessionList() {
   const dialog = useDialog()
   const route = useRoute()
   const sync = useSync()
-  const { theme } = useTheme()
   const sdk = useSDK()
   const keybind = useKeybind()
   const [search, setSearch] = createDebouncedSignal("", 150)

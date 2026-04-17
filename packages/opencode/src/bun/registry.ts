@@ -1,6 +1,5 @@
 import semver from "semver"
-import { Log } from "../util/log"
-import { Process } from "../util/process"
+import { Log, Process } from "../util"
 
 export namespace PackageRegistry {
   const log = Log.create({ service: "bun" })
@@ -39,7 +38,7 @@ export namespace PackageRegistry {
   }
 
   export async function isOutdated(pkg: string, cachedVersion: string, cwd?: string): Promise<boolean> {
-    const latestVersion = await info(pkg, "version", cwd)
+    const latestVersion = await PackageRegistry.info(pkg, "version", cwd)
     if (!latestVersion) {
       log.warn("Failed to resolve latest version, using cached", { pkg, cachedVersion })
       return false
