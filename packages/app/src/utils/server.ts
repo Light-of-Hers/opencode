@@ -1,8 +1,6 @@
 import { createOpencodeClient } from "@opencode-ai/sdk/v2/client"
 import type { ServerConnection } from "@/context/server"
 
-const gatewayEnabled = typeof document !== "undefined" && document.querySelector('meta[name="opencode-gateway"]')
-
 type Pending = {
   path: string
   headers: Record<string, string>
@@ -85,6 +83,10 @@ function createBatchFetch(base: string) {
 
 const batchers = new Map<string, (input: Request) => Promise<Response>>()
 
+function isGatewayEnabled() {
+  return typeof document !== "undefined" && !!document.querySelector('meta[name="opencode-gateway"]')
+}
+
 export function createSdkForServer({
   server,
   gatewayKey,
@@ -93,7 +95,7 @@ export function createSdkForServer({
   server: ServerConnection.HttpBase
   gatewayKey?: string
 }) {
-  const inGatewayMode = !!gatewayEnabled && !!gatewayKey
+  const inGatewayMode = isGatewayEnabled() && !!gatewayKey
 
   const auth = (() => {
     if (inGatewayMode) return
