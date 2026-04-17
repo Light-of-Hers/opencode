@@ -84,6 +84,7 @@ export const WorkspaceDragOverlay = (props: {
 const WorkspaceHeader = (props: {
   local: Accessor<boolean>
   busy: Accessor<boolean>
+  running: Accessor<boolean>
   open: Accessor<boolean>
   directory: string
   language: ReturnType<typeof useLanguage>
@@ -96,9 +97,12 @@ const WorkspaceHeader = (props: {
   projectId?: string
 }): JSX.Element => (
   <div class="flex items-center gap-1 min-w-0 flex-1">
-    <div class="flex items-center justify-center shrink-0 size-6">
+    <div class="relative flex items-center justify-center shrink-0 size-6">
       <Show when={props.busy()} fallback={<Icon name="branch" size="small" />}>
         <Spinner class="size-[15px]" />
+      </Show>
+      <Show when={props.running() && !props.busy()}>
+        <div class="absolute -top-0.5 -right-0.5 size-2 rounded-full bg-icon-success-base ring-1 ring-background-base animate-pulse" />
       </Show>
     </div>
     <span class="text-14-medium text-text-base shrink-0">
@@ -153,15 +157,37 @@ const WorkspaceActions = (props: {
   clearHoverProjectSoon: WorkspaceSidebarContext["clearHoverProjectSoon"]
   navigateToNewSession: () => void
 }): JSX.Element => (
-  <div
-    class="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5 transition-opacity"
-    classList={{
-      "opacity-100 pointer-events-auto": props.menuOpen(),
-      "opacity-0 pointer-events-none": !props.menuOpen(),
-      "group-hover/workspace:opacity-100 group-hover/workspace:pointer-events-auto": true,
-      "group-focus-within/workspace:opacity-100 group-focus-within/workspace:pointer-events-auto": true,
-    }}
-  >
+  <div class="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5">
+    <Tooltip value={props.language.t("command.session.new")} placement="top">
+      <IconButton
+        icon="new-session"
+        variant="ghost"
+        class={`size-6 rounded-md ${
+          props.touch()
+            ? ""
+            : "opacity-0 pointer-events-none group-hover/workspace:opacity-100 group-hover/workspace:pointer-events-auto group-focus-within/workspace:opacity-100 group-focus-within/workspace:pointer-events-auto"
+        }`}
+        data-action="workspace-new-session"
+        data-workspace={base64Encode(props.directory)}
+        aria-label={props.language.t("command.session.new")}
+        onClick={(event) => {
+          event.preventDefault()
+          event.stopPropagation()
+          props.clearHoverProjectSoon()
+          props.navigateToNewSession()
+        }}
+      />
+    </Tooltip>
+    <div
+      class="transition-opacity"
+      classList={{
+        hidden: !props.menuOpen() && props.touch(),
+        "opacity-100 pointer-events-auto": props.menuOpen(),
+        "opacity-0 pointer-events-none": !props.menuOpen() && !props.touch(),
+        "group-hover/workspace:opacity-100 group-hover/workspace:pointer-events-auto": true,
+        "group-focus-within/workspace:opacity-100 group-focus-within/workspace:pointer-events-auto": true,
+      }}
+    >
     <DropdownMenu
       modal={!props.sidebarHovering()}
       open={props.menuOpen()}
@@ -211,24 +237,7 @@ const WorkspaceActions = (props: {
         </DropdownMenu.Content>
       </DropdownMenu.Portal>
     </DropdownMenu>
-    <Show when={!props.touch()}>
-      <Tooltip value={props.language.t("command.session.new")} placement="top">
-        <IconButton
-          icon="new-session"
-          variant="ghost"
-          class="size-6 rounded-md opacity-0 pointer-events-none group-hover/workspace:opacity-100 group-hover/workspace:pointer-events-auto group-focus-within/workspace:opacity-100 group-focus-within/workspace:pointer-events-auto"
-          data-action="workspace-new-session"
-          data-workspace={base64Encode(props.directory)}
-          aria-label={props.language.t("command.session.new")}
-          onClick={(event) => {
-            event.preventDefault()
-            event.stopPropagation()
-            props.clearHoverProjectSoon()
-            props.navigateToNewSession()
-          }}
-        />
-      </Tooltip>
-    </Show>
+    </div>
   </div>
 )
 
@@ -278,7 +287,7 @@ const WorkspaceSessionList = (props: {
           class="flex w-full text-left justify-start text-14-regular text-text-weak pl-2 pr-10"
           size="large"
           onClick={(e: MouseEvent) => {
-            void props.loadMore()
+            props.loadMore()
             ;(e.currentTarget as HTMLButtonElement).blur()
           }}
         >
@@ -323,17 +332,21 @@ export const SortableWorkspace = (props: {
   const busy = createMemo(() => props.ctx.isBusy(props.directory))
   const loading = () => query.isLoading
   const touch = createMediaQuery("(hover: none)")
-  const showNew = createMemo(() => !loading() && (touch() || count() === 0 || (active() && !params.id)))
+  const showNew = createMemo(() => !loading() && !touch() && (count() === 0 || (active() && !params.id)))
   const loadMore = async () => {
     setWorkspaceStore("limit", (limit) => (limit ?? 0) + 5)
     await globalSync.project.loadSessions(props.directory)
   }
 
+  const running = createMemo(() =>
+    Object.values(workspaceStore.session_status).some((status) => status !== undefined && status.type !== "idle"),
+  )
   const workspaceEditActive = createMemo(() => props.ctx.editorOpen(`workspace:${props.directory}`))
   const header = () => (
     <WorkspaceHeader
       local={local}
       busy={busy}
+      running={running}
       open={open}
       directory={props.directory}
       language={language}
@@ -380,7 +393,7 @@ export const SortableWorkspace = (props: {
                 fallback={
                   <Collapsible.Trigger
                     class={`flex items-center justify-between w-full pl-2 py-1.5 rounded-md hover:bg-surface-raised-base-hover transition-[padding] duration-200 ${
-                      menu.open ? "pr-16" : "pr-2"
+                      menu.open ? "pr-16" : touch() ? "pr-8" : "pr-2"
                     } group-hover/workspace:pr-16 group-focus-within/workspace:pr-16`}
                     data-action="workspace-toggle"
                     data-workspace={base64Encode(props.directory)}
@@ -391,7 +404,7 @@ export const SortableWorkspace = (props: {
               >
                 <div
                   class={`flex items-center justify-between w-full pl-2 py-1.5 rounded-md transition-[padding] duration-200 ${
-                    menu.open ? "pr-16" : "pr-2"
+                    menu.open ? "pr-16" : touch() ? "pr-8" : "pr-2"
                   } group-hover/workspace:pr-16 group-focus-within/workspace:pr-16`}
                 >
                   {header()}

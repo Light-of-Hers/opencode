@@ -1,0 +1,75 @@
+import { createEffect, For, onCleanup, Show, type JSX } from "solid-js"
+import { createStore, reconcile } from "solid-js/store"
+import { Tooltip } from "@opencode-ai/ui/tooltip"
+import { ServerHealthIndicator } from "@/components/server/server-row"
+import { getAvatarColors } from "@/context/layout"
+import { ServerConnection, serverName, useServer } from "@/context/server"
+import { type ServerHealth, useCheckServerHealth } from "@/utils/server-health"
+import { serverRailColorFor, serverRailInitials } from "./sidebar-server-utils"
+
+const POLL_MS = 10_000
+
+export const ServerRail = (props: { mobile?: boolean }): JSX.Element => {
+  const server = useServer()
+  const check = useCheckServerHealth()
+  const [health, setHealth] = createStore({} as Record<ServerConnection.Key, ServerHealth | undefined>)
+  const placement = () => (props.mobile ? "bottom" : "right")
+
+  createEffect(() => {
+    const list = server.list
+    let dead = false
+    const refresh = async () => {
+      const results: Record<string, ServerHealth> = {}
+      await Promise.all(list.map(async (conn) => (results[ServerConnection.key(conn)] = await check(conn.http))))
+      if (dead) return
+      setHealth(reconcile(results))
+    }
+    void refresh()
+    const id = setInterval(() => void refresh(), POLL_MS)
+    onCleanup(() => {
+      dead = true
+      clearInterval(id)
+    })
+  })
+
+  return (
+    <For each={server.list}>
+      {(conn) => {
+        const key = ServerConnection.key(conn)
+        const label = () => serverName(conn)
+        const initials = serverRailInitials(serverName(conn))
+        const colors = getAvatarColors(serverRailColorFor(key))
+        const active = () => server.key === key
+
+        return (
+          <Tooltip placement={placement()} value={label()}>
+            <button
+              type="button"
+              aria-label={label()}
+              classList={{
+                "relative flex items-center justify-center size-10 p-1 rounded-lg transition-colors cursor-default": true,
+                "border-2 border-icon-strong-base": active(),
+                "border border-transparent hover:bg-surface-base-hover hover:border-border-weak-base": !active(),
+              }}
+              onClick={() => {
+                server.setActive(key)
+              }}
+            >
+              <div
+                class="size-8 rounded flex items-center justify-center text-12-medium select-none"
+                style={{ background: colors.background, color: colors.foreground }}
+              >
+                {initials}
+              </div>
+              <Show when={health[key]?.healthy === false}>
+                <div class="absolute top-px right-px">
+                  <ServerHealthIndicator health={health[key]} />
+                </div>
+              </Show>
+            </button>
+          </Tooltip>
+        )
+      }}
+    </For>
+  )
+}
