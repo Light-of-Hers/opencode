@@ -41,6 +41,17 @@ describe("prompt-input history", () => {
     expect(dedupedComments).toBe(commentsOnly)
   })
 
+  test("prependHistoryEntry keeps only the newest 10 entries by default", () => {
+    const entries = Array.from({ length: 10 }, (_, index) => text(`entry-${index}`))
+    const next = prependHistoryEntry(entries, text("latest"))
+    const latest = normalizePromptHistoryEntry(next[0]!)
+    const oldest = normalizePromptHistoryEntry(next[next.length - 1]!)
+
+    expect(next).toHaveLength(10)
+    expect(latest.prompt[0]?.type === "text" ? latest.prompt[0].content : "").toBe("latest")
+    expect(oldest.prompt[0]?.type === "text" ? oldest.prompt[0].content : "").toBe("entry-8")
+  })
+
   test("navigatePromptHistory restores saved prompt when moving down from newest", () => {
     const entries = [text("third"), text("second"), text("first")]
     const up = navigatePromptHistory({

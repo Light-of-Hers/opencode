@@ -418,7 +418,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       requestAnimationFrame(() => {
         const editor = input.editor()
         if (!editor) return
-        editor.focus()
+        if (window.innerWidth >= 768) editor.focus()
         setCursorPosition(editor, input.promptLength(currentPrompt))
         input.queueScroll()
       })
