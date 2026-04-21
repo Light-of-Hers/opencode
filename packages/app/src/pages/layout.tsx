@@ -87,7 +87,6 @@ import {
 } from "./layout/sidebar-workspace"
 import { ProjectDragOverlay, SortableProject, type ProjectSidebarContext } from "./layout/sidebar-project"
 import { SidebarContent } from "./layout/sidebar-shell"
-import { ServerRail } from "./layout/sidebar-server"
 
 export default function Layout(props: ParentProps) {
   const [store, setStore, , ready] = persisted(
@@ -319,7 +318,6 @@ export default function Layout(props: ParentProps) {
     clearSidebarHoverState()
     navigate(href)
     layout.mobileSidebar.hide()
-    if (window.innerWidth < 768) (document.activeElement as HTMLElement | null)?.blur()
   }
 
   function cycleTheme(direction = 1) {
@@ -583,10 +581,10 @@ export default function Layout(props: ParentProps) {
   const [autoselecting] = createResource(async () => {
     await ready.promise
     await layout.ready.promise
-    const list = untrack(() => layout.projects.list())
-    const last = untrack(() => server.projects.last())
-    const validDir = initialDirectory && list.some((project) => project.worktree === initialDirectory)
-    if (validDir) return
+    if (!untrack(() => state.autoselect)) return
+
+    const list = layout.projects.list()
+    const last = server.projects.last()
 
     if (list.length === 0) {
       if (!last) return
@@ -679,10 +677,10 @@ export default function Layout(props: ParentProps) {
     running: number
   }
 
-  const prefetchChunk = 5
-  const prefetchConcurrency = 1
-  const prefetchPendingLimit = 2
-  const span = 0
+  const prefetchChunk = 200
+  const prefetchConcurrency = 2
+  const prefetchPendingLimit = 10
+  const span = 4
   const prefetchToken = { value: 0 }
   const prefetchQueues = new Map<string, PrefetchQueue>()
 
@@ -1302,8 +1300,7 @@ export default function Layout(props: ParentProps) {
       const [data] = globalSync.child(target.directory, { bootstrap: false })
       if (data.session.some((item) => item.id === target.id)) {
         setStore("lastProjectSession", root, { directory: target.directory, id: target.id, at: Date.now() })
-        clearSidebarHoverState()
-        navigate(`/${base64Encode(target.directory)}/session/${target.id}`)
+        navigateWithSidebarReset(`/${base64Encode(target.directory)}/session/${target.id}`)
         return true
       }
       const resolved = await globalSDK.client.session
@@ -1313,8 +1310,7 @@ export default function Layout(props: ParentProps) {
       if (!resolved?.directory) return false
       if (!canOpen(resolved.directory)) return false
       setStore("lastProjectSession", root, { directory: resolved.directory, id: resolved.id, at: Date.now() })
-      clearSidebarHoverState()
-      navigate(`/${base64Encode(resolved.directory)}/session/${resolved.id}`)
+      navigateWithSidebarReset(`/${base64Encode(resolved.directory)}/session/${resolved.id}`)
       return true
     }
 
@@ -1350,8 +1346,7 @@ export default function Layout(props: ParentProps) {
       return
     }
 
-    clearSidebarHoverState()
-    navigate(`/${base64Encode(root)}/session`)
+    navigateWithSidebarReset(`/${base64Encode(root)}/session`)
   }
 
   function navigateToSession(session: Session | undefined) {
@@ -2264,9 +2259,7 @@ export default function Layout(props: ParentProps) {
                         onDragOver={handleWorkspaceDragOver}
                         collisionDetector={closestCenter}
                       >
-                        <Show when={!panelProps.mobile}>
-                          <DragDropSensors />
-                        </Show>
+                        <DragDropSensors />
                         <ConstrainDragXAxis />
                         <div
                           ref={(el) => {
@@ -2354,7 +2347,6 @@ export default function Layout(props: ParentProps) {
       openProjectKeybind={() => command.keybind("project.open")}
       onOpenProject={chooseProject}
       renderProjectOverlay={projectOverlay}
-      renderServers={() => <ServerRail mobile={mobile} />}
       settingsLabel={() => language.t("sidebar.settings")}
       settingsKeybind={() => command.keybind("settings.open")}
       onOpenSettings={openSettings}

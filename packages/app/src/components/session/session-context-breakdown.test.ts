@@ -58,25 +58,4 @@ describe("estimateSessionContextBreakdown", () => {
     expect(total).toBeLessThanOrEqual(10)
     expect(output.every((segment) => segment.width <= 100)).toBeTrue()
   })
-
-  test("scales known segments when unloaded history makes other dominate", () => {
-    const messages = [user("u1"), assistant("a1")]
-    const parts = {
-      u1: [{ type: "text", text: "hello world" }] as unknown as Part[],
-      a1: [{ type: "text", text: "assistant response" }] as unknown as Part[],
-    }
-
-    const output = estimateSessionContextBreakdown({
-      messages,
-      parts,
-      input: 100,
-      systemPrompt: "system prompt",
-    })
-
-    const map = Object.fromEntries(output.map((segment) => [segment.key, segment.tokens]))
-    expect(map.system).toBe(33)
-    expect(map.user).toBe(25)
-    expect(map.assistant).toBe(42)
-    expect(map.other).toBeUndefined()
-  })
 })

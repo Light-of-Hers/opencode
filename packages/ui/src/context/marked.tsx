@@ -4,9 +4,7 @@ import markedShiki from "marked-shiki"
 import katex from "katex"
 import { bundledLanguages, type BundledLanguage } from "shiki"
 import { createSimpleContext } from "./helper"
-import { extendFileFormatMap, getSharedHighlighter, registerCustomTheme, ThemeRegistrationResolved } from "@pierre/diffs"
-
-extendFileFormatMap({ cu: "cpp", cuh: "cpp" })
+import { getSharedHighlighter, registerCustomTheme, ThemeRegistrationResolved } from "@pierre/diffs"
 
 registerCustomTheme("OpenCode", () => {
   return Promise.resolve({

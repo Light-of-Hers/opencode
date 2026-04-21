@@ -115,15 +115,12 @@ export function createLineNumberSelectionBridge() {
     },
     finish() {
       const current = mode
-      pending = current === "numbers"
+      pending = current === "numbers" && moved
       clear()
       return current
     },
-    signal() {
-      pending = true
-    },
     consume(range: SelectedLineRange | null) {
-      const result = pending && range != null
+      const result = pending && !isSingleLineSelection(range)
       pending = false
       return result
     },

@@ -1,7 +1,6 @@
 import { For, Show, createEffect, createMemo, on, onCleanup, onMount } from "solid-js"
 import { createStore } from "solid-js/store"
 import { makeEventListener } from "@solid-primitives/event-listener"
-import { createMediaQuery } from "@solid-primitives/media"
 import { Tabs } from "@opencode-ai/ui/tabs"
 import { ResizeHandle } from "@opencode-ai/ui/resize-handle"
 import { IconButton } from "@opencode-ai/ui/icon-button"
@@ -33,7 +32,6 @@ export function TerminalPanel() {
   const size = createSizing()
   const height = createMemo(() => layout.terminal.height())
   const close = () => view().terminal.close()
-  const isDesktop = createMediaQuery("(min-width: 768px)")
   let root: HTMLDivElement | undefined
 
   const [store, setStore] = createStore({
@@ -177,155 +175,143 @@ export function TerminalPanel() {
   }
 
   return (
-    <>
-      <Show when={!isDesktop() && opened()}>
-        <div class="absolute inset-0 z-40" onClick={close} />
-      </Show>
+    <div
+      ref={root}
+      id="terminal-panel"
+      role="region"
+      aria-label={language.t("terminal.title")}
+      aria-hidden={!opened()}
+      inert={!opened()}
+      class="relative w-full shrink-0 overflow-hidden bg-background-stronger"
+      classList={{
+        "border-t border-border-weak-base": opened(),
+        "transition-[height] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[height] motion-reduce:transition-none":
+          !size.active(),
+      }}
+      style={{ height: opened() ? `${pane()}px` : "0px" }}
+    >
       <div
-        ref={root}
-        id="terminal-panel"
-        role="region"
-        aria-label={language.t("terminal.title")}
-        aria-hidden={!opened()}
-        inert={!opened()}
-        class="overflow-hidden bg-background-stronger"
+        class="absolute inset-x-0 top-0 flex flex-col"
         classList={{
-          "relative w-full shrink-0": isDesktop(),
-          "border-t border-border-weak-base": isDesktop() && opened(),
-          "transition-[height] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[height] motion-reduce:transition-none":
-            isDesktop() && !size.active(),
-          "absolute inset-0 z-50": !isDesktop() && opened(),
-          hidden: !isDesktop() && !opened(),
+          "pointer-events-none": !opened(),
         }}
-        style={isDesktop() ? { height: opened() ? `${pane()}px` : "0px" } : undefined}
+        style={{ height: `${pane()}px` }}
       >
-        <div
-          class="flex flex-col"
-          classList={{
-            "absolute inset-x-0 top-0": isDesktop(),
-            "h-full": !isDesktop(),
-            "pointer-events-none": !opened(),
-          }}
-          style={isDesktop() ? { height: `${pane()}px` } : undefined}
+        <div class="hidden md:block" onPointerDown={() => size.start()}>
+          <ResizeHandle
+            direction="vertical"
+            size={pane()}
+            min={100}
+            max={max()}
+            collapseThreshold={50}
+            onResize={(next) => {
+              size.touch()
+              layout.terminal.resize(next)
+            }}
+            onCollapse={close}
+          />
+        </div>
+        <Show
+          when={terminal.ready()}
+          fallback={
+            <div class="flex flex-col h-full pointer-events-none">
+              <div class="h-10 flex items-center gap-2 px-2 border-b border-border-weaker-base bg-background-stronger overflow-hidden">
+                <For each={handoff()}>
+                  {(title) => (
+                    <div class="px-2 py-1 rounded-md bg-surface-base text-14-regular text-text-weak truncate max-w-40">
+                      {title}
+                    </div>
+                  )}
+                </For>
+                <div class="flex-1" />
+                <div class="text-text-weak pr-2">
+                  {language.t("common.loading")}
+                  {language.t("common.loading.ellipsis")}
+                </div>
+              </div>
+              <div class="flex-1 flex items-center justify-center text-text-weak">{language.t("terminal.loading")}</div>
+            </div>
+          }
         >
-          <div class="hidden md:block" onPointerDown={() => size.start()}>
-            <ResizeHandle
-              direction="vertical"
-              size={pane()}
-              min={100}
-              max={max()}
-              collapseThreshold={50}
-              onResize={(next) => {
-                size.touch()
-                layout.terminal.resize(next)
-              }}
-              onCollapse={close}
-            />
-          </div>
-          <Show
-            when={terminal.ready()}
-            fallback={
-              <div class="flex flex-col h-full pointer-events-none">
-                <div class="h-10 flex items-center gap-2 px-2 border-b border-border-weaker-base bg-background-stronger overflow-hidden">
-                  <For each={handoff()}>
-                    {(title) => (
-                      <div class="px-2 py-1 rounded-md bg-surface-base text-14-regular text-text-weak truncate max-w-40">
-                        {title}
+          <DragDropProvider
+            onDragStart={handleTerminalDragStart}
+            onDragEnd={handleTerminalDragEnd}
+            onDragOver={handleTerminalDragOver}
+            collisionDetector={closestCenter}
+          >
+            <DragDropSensors />
+            <ConstrainDragYAxis />
+            <div class="flex flex-col h-full">
+              <Tabs
+                variant="alt"
+                value={terminal.active()}
+                onChange={(id) => terminal.open(id)}
+                class="!h-auto !flex-none"
+              >
+                <Tabs.List class="h-10 border-b border-border-weaker-base">
+                  <SortableProvider ids={ids()}>
+                    <For each={all()}>{(pty) => <SortableTerminalTab terminal={pty} onClose={close} />}</For>
+                  </SortableProvider>
+                  <div class="h-full flex items-center justify-center">
+                    <TooltipKeybind
+                      title={language.t("command.terminal.new")}
+                      keybind={command.keybind("terminal.new")}
+                      class="flex items-center"
+                    >
+                      <IconButton
+                        icon="plus-small"
+                        variant="ghost"
+                        iconSize="large"
+                        onClick={terminal.new}
+                        aria-label={language.t("command.terminal.new")}
+                      />
+                    </TooltipKeybind>
+                  </div>
+                </Tabs.List>
+              </Tabs>
+              <div class="flex-1 min-h-0 relative">
+                <Show when={terminal.active()} keyed>
+                  {(id) => {
+                    const ops = terminal.bind()
+                    return (
+                      <Show when={all().find((pty) => pty.id === id)}>
+                        {(pty) => (
+                          <div id={`terminal-wrapper-${id}`} class="absolute inset-0">
+                            <Terminal
+                              pty={pty()}
+                              autoFocus={opened()}
+                              onConnect={() => ops.trim(id)}
+                              onCleanup={ops.update}
+                              onConnectError={() => ops.clone(id)}
+                            />
+                          </div>
+                        )}
+                      </Show>
+                    )
+                  }}
+                </Show>
+              </div>
+            </div>
+            <DragOverlay>
+              <Show when={store.activeDraggable} keyed>
+                {(id) => (
+                  <Show when={all().find((pty) => pty.id === id)}>
+                    {(t) => (
+                      <div class="relative p-1 h-10 flex items-center bg-background-stronger text-14-regular">
+                        {terminalTabLabel({
+                          title: t().title,
+                          titleNumber: t().titleNumber,
+                          t: language.t as (key: string, vars?: Record<string, string | number | boolean>) => string,
+                        })}
                       </div>
                     )}
-                  </For>
-                  <div class="flex-1" />
-                  <div class="text-text-weak pr-2">
-                    {language.t("common.loading")}
-                    {language.t("common.loading.ellipsis")}
-                  </div>
-                </div>
-                <div class="flex-1 flex items-center justify-center text-text-weak">
-                  {language.t("terminal.loading")}
-                </div>
-              </div>
-            }
-          >
-            <DragDropProvider
-              onDragStart={handleTerminalDragStart}
-              onDragEnd={handleTerminalDragEnd}
-              onDragOver={handleTerminalDragOver}
-              collisionDetector={closestCenter}
-            >
-              <DragDropSensors />
-              <ConstrainDragYAxis />
-              <div class="flex flex-col h-full">
-                <Tabs
-                  variant="alt"
-                  value={terminal.active()}
-                  onChange={(id) => terminal.open(id)}
-                  class="!h-auto !flex-none"
-                >
-                  <Tabs.List class="h-10 border-b border-border-weaker-base">
-                    <SortableProvider ids={ids()}>
-                      <For each={all()}>{(pty) => <SortableTerminalTab terminal={pty} onClose={close} />}</For>
-                    </SortableProvider>
-                    <div class="h-full flex items-center justify-center">
-                      <TooltipKeybind
-                        title={language.t("command.terminal.new")}
-                        keybind={command.keybind("terminal.new")}
-                        class="flex items-center"
-                      >
-                        <IconButton
-                          icon="plus-small"
-                          variant="ghost"
-                          iconSize="large"
-                          onClick={terminal.new}
-                          aria-label={language.t("command.terminal.new")}
-                        />
-                      </TooltipKeybind>
-                    </div>
-                  </Tabs.List>
-                </Tabs>
-                <div class="flex-1 min-h-0 relative">
-                  <Show when={terminal.active()} keyed>
-                    {(id) => {
-                      const ops = terminal.bind()
-                      return (
-                        <Show when={all().find((pty) => pty.id === id)}>
-                          {(pty) => (
-                            <div id={`terminal-wrapper-${id}`} class="absolute inset-0">
-                              <Terminal
-                                pty={pty()}
-                                autoFocus={opened()}
-                                onConnect={() => ops.trim(id)}
-                                onCleanup={ops.update}
-                                onConnectError={() => ops.clone(id)}
-                              />
-                            </div>
-                          )}
-                        </Show>
-                      )
-                    }}
                   </Show>
-                </div>
-              </div>
-              <DragOverlay>
-                <Show when={store.activeDraggable} keyed>
-                  {(id) => (
-                    <Show when={all().find((pty) => pty.id === id)}>
-                      {(t) => (
-                        <div class="relative p-1 h-10 flex items-center bg-background-stronger text-14-regular">
-                          {terminalTabLabel({
-                            title: t().title,
-                            titleNumber: t().titleNumber,
-                            t: language.t as (key: string, vars?: Record<string, string | number | boolean>) => string,
-                          })}
-                        </div>
-                      )}
-                    </Show>
-                  )}
-                </Show>
-              </DragOverlay>
-            </DragDropProvider>
-          </Show>
-        </div>
+                )}
+              </Show>
+            </DragOverlay>
+          </DragDropProvider>
+        </Show>
       </div>
-    </>
+    </div>
   )
 }

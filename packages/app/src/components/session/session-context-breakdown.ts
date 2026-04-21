@@ -116,25 +116,8 @@ export function estimateSessionContextBreakdown(args: {
   }
   const estimated = tokens.system + tokens.user + tokens.assistant + tokens.tool
 
-  if (estimated === 0) return []
-
-  const remainder = args.input - estimated
-  if (remainder > args.input * 0.5) {
-    const scale = args.input / estimated
-    return build(
-      {
-        system: Math.round(tokens.system * scale),
-        user: Math.round(tokens.user * scale),
-        assistant: Math.round(tokens.assistant * scale),
-        tool: Math.round(tokens.tool * scale),
-        other: 0,
-      },
-      args.input,
-    )
-  }
-
   if (estimated <= args.input) {
-    return build({ ...tokens, other: remainder }, args.input)
+    return build({ ...tokens, other: args.input - estimated }, args.input)
   }
 
   const scale = args.input / estimated

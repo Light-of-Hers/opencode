@@ -624,13 +624,11 @@ export function MessageTimeline(props: {
   }
 
   return (
-    <>
-      <div
-        classList={{
-          "relative w-full h-full min-w-0": true,
-          hidden: !!props.mobileChanges,
-        }}
-      >
+    <Show
+      when={!props.mobileChanges}
+      fallback={<div class="relative h-full overflow-hidden">{props.mobileFallback}</div>}
+    >
+      <div class="relative w-full h-full min-w-0">
         <div
           class="absolute left-1/2 -translate-x-1/2 bottom-6 z-[60] pointer-events-none transition-all duration-200 ease-out"
           classList={{
@@ -1115,14 +1113,6 @@ export function MessageTimeline(props: {
           </div>
         </ScrollView>
       </div>
-      <div
-        classList={{
-          "relative h-full overflow-hidden": true,
-          hidden: !props.mobileChanges,
-        }}
-      >
-        {props.mobileFallback}
-      </div>
-    </>
+    </Show>
   )
 }

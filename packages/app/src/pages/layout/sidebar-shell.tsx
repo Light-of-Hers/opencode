@@ -25,7 +25,6 @@ export const SidebarContent = (props: {
   openProjectKeybind: Accessor<string | undefined>
   onOpenProject: () => void
   renderProjectOverlay: () => JSX.Element
-  renderServers?: () => JSX.Element
   settingsLabel: Accessor<string>
   settingsKeybind: Accessor<string | undefined>
   onOpenSettings: () => void
@@ -90,12 +89,6 @@ export const SidebarContent = (props: {
             <DragOverlay>{props.renderProjectOverlay()}</DragOverlay>
           </DragDropProvider>
         </div>
-        <Show when={props.renderServers}>
-          <div class="shrink-0 w-full flex flex-col items-center gap-2 px-3 pb-2">
-            <div class="w-8 border-t border-border-weaker-base" />
-            {props.renderServers!()}
-          </div>
-        </Show>
         <div class="shrink-0 w-full pt-3 pb-6 flex flex-col items-center gap-2">
           <TooltipKeybind placement={placement()} title={props.settingsLabel()} keybind={props.settingsKeybind() ?? ""}>
             <IconButton

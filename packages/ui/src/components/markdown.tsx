@@ -33,7 +33,6 @@ const config = {
   SANITIZE_NAMED_PROPS: true,
   FORBID_TAGS: ["style"],
   FORBID_CONTENTS: ["style", "script"],
-  ADD_ATTR: ["target"],
 }
 
 const iconPaths = {

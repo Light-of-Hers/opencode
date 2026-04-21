@@ -102,43 +102,20 @@ describe("session messages endpoint", () => {
     )
   })
 
-  test("returns the default first page when limit is omitted", async () => {
+  test("keeps full-history responses when limit is omitted", async () => {
     await using tmp = await tmpdir({ git: true })
     await withoutWatcher(() =>
       Instance.provide({
         directory: tmp.path,
         fn: async () => {
           const session = await svc.create({})
-          const ids = await fill(session.id, 85)
+          const ids = await fill(session.id, 3)
           const app = Server.Default().app
 
           const res = await app.request(`/session/${session.id}/message`)
           expect(res.status).toBe(200)
           const body = (await res.json()) as MessageV2.WithParts[]
-          expect(body).toHaveLength(80)
-          expect(body.map((item) => item.info.id)).toEqual(ids.slice(-80))
-          expect(res.headers.get("x-next-cursor")).toBeTruthy()
-
-          await svc.remove(session.id)
-        },
-      }),
-    )
-  })
-
-  test("returns an empty page when limit is zero", async () => {
-    await using tmp = await tmpdir({ git: true })
-    await withoutWatcher(() =>
-      Instance.provide({
-        directory: tmp.path,
-        fn: async () => {
-          const session = await svc.create({})
-          await fill(session.id, 3)
-          const app = Server.Default().app
-
-          const res = await app.request(`/session/${session.id}/message?limit=0`)
-          expect(res.status).toBe(200)
-          const body = (await res.json()) as MessageV2.WithParts[]
-          expect(body).toHaveLength(0)
+          expect(body.map((item) => item.info.id)).toEqual(ids)
 
           await svc.remove(session.id)
         },
